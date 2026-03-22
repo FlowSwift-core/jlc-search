@@ -54,8 +54,17 @@ def validate_sql(sql: str):
         raise HTTPException(400, "只允许 SELECT 查询")
 
     forbidden = [
-        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
-        "ATTACH", "DETACH", "REPLACE", "TRUNCATE", "PRAGMA",
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "DROP",
+        "ALTER",
+        "CREATE",
+        "ATTACH",
+        "DETACH",
+        "REPLACE",
+        "TRUNCATE",
+        "PRAGMA",
     ]
     for word in forbidden:
         if word in sql_upper:
@@ -115,17 +124,19 @@ async def search(q: str, limit: int = 20):
 
     # 自动添加 * 支持前缀匹配
     fts_query = q.strip()
-    if not any(c in fts_query for c in ['*', '"', ':', ' ']):
-        fts_query = fts_query + '*'
+    if not any(c in fts_query for c in ["*", '"', ":", " "]):
+        fts_query = fts_query + "*"
 
     try:
         with get_db(readonly=True) as conn:
+            # FTS5 搜索，JOIN components 获取 stock/basic
             cursor = conn.execute(
                 """
-                SELECT lcsc, mfr, package, description, stock,
-                       basic, datasheet,
+                SELECT fts.lcsc, fts.mfr, fts.package, fts.description, 
+                       c.stock, c.basic, fts.datasheet,
                        bm25(components_fts) as rank
-                FROM components_fts
+                FROM components_fts fts
+                LEFT JOIN components c ON c.lcsc = CAST(fts.lcsc AS INTEGER)
                 WHERE components_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
