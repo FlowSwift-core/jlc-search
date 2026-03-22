@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'jlc-api',
       script: 'uvicorn',
-      args: 'jlc_search.api:app --host 0.0.0.0 --port 8000',
+      args: 'jlc_search.api:app --host 0.0.0.0 --port 8003',
       interpreter: '/root/work/jlc-pcb-components/.venv/bin/python3',
       cwd: '/root/work/jlc-pcb-components',
       env: {
