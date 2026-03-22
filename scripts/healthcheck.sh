@@ -1,4 +1,14 @@
 #!/bin/bash
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 加载环境变量
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    source "$PROJECT_DIR/.env"
+    set +a
+fi
+
 API_URL="${JLC_API_URL:-http://localhost:8000/health}"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 CHAT_ID="${TELEGRAM_CHAT_ID}"

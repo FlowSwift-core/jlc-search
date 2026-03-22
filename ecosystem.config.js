@@ -22,8 +22,8 @@ module.exports = {
       autorestart: false,
       watch: false,
       env: {
-        TELEGRAM_BOT_TOKEN: '',
-        TELEGRAM_CHAT_ID: '',
+        TELEGRAM_BOT_TOKEN: '6113313921:AAFjz_-FDprxiYZM_wuehJrCZOmXcCPtVXQ',
+        TELEGRAM_CHAT_ID: '1029979132',
       },
       error_file: '/root/.pm2/logs/jlc-update-error.log',
       out_file: '/root/.pm2/logs/jlc-update-out.log',

@@ -17,6 +17,13 @@ send_telegram() {
 
 cd "$PROJECT_DIR"
 
+# 加载环境变量
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 # 激活虚拟环境
 if [ -f .venv/bin/activate ]; then
     source .venv/bin/activate
