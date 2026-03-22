@@ -110,23 +110,27 @@ async def query(request: QueryRequest):
 
 @app.get("/search")
 async def search(q: str, limit: int = 20):
-    """简易搜索接口（FTS5）"""
+    """简易搜索接口（FTS5 前缀匹配）"""
     start = time.time()
+
+    # 自动添加 * 支持前缀匹配
+    fts_query = q.strip()
+    if not any(c in fts_query for c in ['*', '"', ':', ' ']):
+        fts_query = fts_query + '*'
 
     try:
         with get_db(readonly=True) as conn:
             cursor = conn.execute(
                 """
-                SELECT c.lcsc, c.mfr, c.package, c.description, c.stock,
-                       c.is_basic, c.datasheet_url,
+                SELECT lcsc, mfr, package, description, stock,
+                       basic, datasheet,
                        bm25(components_fts) as rank
-                FROM components_fts fts
-                JOIN components c ON c.rowid = fts.rowid
+                FROM components_fts
                 WHERE components_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (q, min(limit, 100)),
+                (fts_query, min(limit, 100)),
             )
 
             columns = [desc[0] for desc in cursor.description]

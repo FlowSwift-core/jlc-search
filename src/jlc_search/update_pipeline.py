@@ -1,13 +1,11 @@
 """更新 Pipeline 入口"""
 
 import argparse
-import sys
 from pathlib import Path
 
-from .fetch import fetch_jlcparts
-from .optimize import optimize_database
+from .fetch import fetch_database
 from .datasheet import update_datasheet_urls
-from .fts import create_fts_index
+from .fts import rebuild_fts_index
 from .db import get_writable_db, DB_PATH
 
 
@@ -19,20 +17,17 @@ def main():
 
     output_db = Path(args.output) if args.output else DB_PATH
 
-    # 1. 下载 jlcparts
-    source_db = fetch_jlcparts()
+    # 1. 下载 CDFER 数据库（已有 FTS5 + datasheet 列）
+    fetch_database()
 
-    # 2. 优化数据库
-    optimize_database(source_db, output_db)
-
-    # 3. 采集 datasheet URL
-    print("[4/5] 采集 datasheet URL...")
+    # 2. 补充 datasheet URL（CDFER 可能有缺失的）
+    print("[2/3] 补充 datasheet URL...")
     conn = get_writable_db()
     update_datasheet_urls(conn, batch_size=args.datasheet_batch)
 
-    # 4. 建立 FTS5 索引
-    print("[5/5] 建立 FTS5 索引...")
-    create_fts_index(conn)
+    # 3. 重建 FTS5 索引（确保完整）
+    print("[3/3] 重建 FTS5 索引...")
+    rebuild_fts_index(conn)
     conn.close()
 
     size_mb = output_db.stat().st_size / 1024 / 1024
