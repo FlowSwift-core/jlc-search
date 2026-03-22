@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import os
 import sqlite3
@@ -119,7 +120,7 @@ async def query(request: QueryRequest):
 
 @app.get("/search")
 async def search(q: str, limit: int = 20):
-    """简易搜索接口（FTS5 前缀匹配）"""
+    """简易搜索接口（FTS5 前缀匹配，基础库优先）"""
     start = time.time()
 
     # 自动添加 * 支持前缀匹配
@@ -129,26 +130,51 @@ async def search(q: str, limit: int = 20):
 
     try:
         with get_db(readonly=True) as conn:
-            # FTS5 搜索，JOIN components 获取 stock/basic
+            # FTS5 搜索，JOIN components 获取 stock/basic/price
+            # 基础库优先 (basic DESC)，然后按 BM25 排序
             cursor = conn.execute(
                 """
                 SELECT fts.lcsc, fts.mfr, fts.package, fts.description, 
-                       c.stock, c.basic, fts.datasheet,
+                       c.stock, c.basic, c.price, fts.datasheet,
                        bm25(components_fts) as rank
                 FROM components_fts fts
                 LEFT JOIN components c ON c.lcsc = CAST(fts.lcsc AS INTEGER)
                 WHERE components_fts MATCH ?
-                ORDER BY rank
+                ORDER BY c.basic DESC, rank
                 LIMIT ?
                 """,
                 (fts_query, min(limit, 100)),
             )
 
-            columns = [desc[0] for desc in cursor.description]
-            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            results = []
+            for row in cursor.fetchall():
+                lcsc, mfr, package, desc, stock, basic, price_json, datasheet, rank = row
+
+                # 解析价格 JSON，取第一档价格
+                price_usd = None
+                try:
+                    if price_json:
+                        tiers = json.loads(price_json)
+                        if tiers and len(tiers) > 0:
+                            price_usd = round(tiers[0].get("price", 0), 6)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                results.append(
+                    {
+                        "lcsc": lcsc,
+                        "mfr": mfr,
+                        "package": package,
+                        "description": desc,
+                        "stock": stock,
+                        "is_basic": basic == 1,
+                        "price_usd": price_usd,
+                        "datasheet": datasheet,
+                    }
+                )
 
             elapsed = int((time.time() - start) * 1000)
 
-            return {"results": rows, "count": len(rows), "time_ms": elapsed}
+            return {"results": results, "count": len(results), "time_ms": elapsed}
     except Exception as e:
         raise HTTPException(400, f"搜索错误: {e}")
