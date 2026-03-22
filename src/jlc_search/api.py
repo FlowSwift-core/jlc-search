@@ -130,15 +130,17 @@ async def search(q: str, limit: int = 20):
 
     try:
         with get_db(readonly=True) as conn:
-            # FTS5 搜索，JOIN components 获取 stock/basic/price
+            # FTS5 搜索，JOIN components 和 categories
             # 基础库优先 (basic DESC)，然后按 BM25 排序
             cursor = conn.execute(
                 """
                 SELECT fts.lcsc, fts.mfr, fts.package, fts.description, 
                        c.stock, c.basic, c.price, fts.datasheet,
+                       cat.category, cat.subcategory,
                        bm25(components_fts) as rank
                 FROM components_fts fts
                 LEFT JOIN components c ON c.lcsc = CAST(fts.lcsc AS INTEGER)
+                LEFT JOIN categories cat ON c.category_id = cat.id
                 WHERE components_fts MATCH ?
                 ORDER BY c.basic DESC, rank
                 LIMIT ?
@@ -148,7 +150,19 @@ async def search(q: str, limit: int = 20):
 
             results = []
             for row in cursor.fetchall():
-                lcsc, mfr, package, desc, stock, basic, price_json, datasheet, rank = row
+                (
+                    lcsc,
+                    mfr,
+                    package,
+                    desc,
+                    stock,
+                    basic,
+                    price_json,
+                    datasheet,
+                    category,
+                    subcategory,
+                    rank,
+                ) = row
 
                 # 解析价格 JSON，取第一档价格
                 price_usd = None
@@ -170,6 +184,8 @@ async def search(q: str, limit: int = 20):
                         "is_basic": basic == 1,
                         "price_usd": price_usd,
                         "datasheet": datasheet,
+                        "category": category or "",
+                        "subcategory": subcategory or "",
                     }
                 )
 
