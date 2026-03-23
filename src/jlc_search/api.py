@@ -212,20 +212,20 @@ def _fallback_search(conn, q: str, limit: int, start: float) -> SearchResponse:
 @app.post("/search/ai", response_model=SearchResponse)
 async def search_ai(request: AiSearchRequest):
     """
-    AI 智能搜索（自然语言查询）
+    AI 智能搜索（自然语言查询 + 语义理解）
 
     示例请求：
     {
-        "q": "10K 0603 1% 电阻",
+        "q": "USB-C 连接器",
         "limit": 5
     }
 
-    AI 会理解查询并生成 SQL，然后执行搜索。
+    AI 会理解查询意图、识别类别，生成优化的 SQL。
     """
     start = time.time()
 
-    # 使用 AI 生成 SQL
-    sql = generate_sql_with_ai(request.q)
+    # 使用 AI 解析意图并生成 SQL
+    sql, intent = generate_sql_with_ai(request.q)
 
     # 验证 SQL
     validate_sql(sql)
