@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def optimize_database(source_db: Path, target_db: Path):
-    """优化数据库：复制 + 清理 + 添加 datasheet_url 列"""
+    """优化数据库：复制 + 清理"""
 
     print("[3/5] 优化数据库...")
 
@@ -18,11 +18,7 @@ def optimize_database(source_db: Path, target_db: Path):
     src.backup(dst)
     src.close()
 
-    # 添加 datasheet_url 列
-    try:
-        dst.execute("ALTER TABLE components ADD COLUMN datasheet_url TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # CDFER 数据库已有 datasheet 列，无需添加
 
     # 删除过期元件
     try:

@@ -23,15 +23,11 @@ def fetch_datasheet_url(lcsc_id: int, client: httpx.Client) -> tuple[int, str | 
     return lcsc_id, None
 
 
-def fetch_batch_datasheets(
-    lcsc_ids: list[int], max_workers: int = 5
-) -> dict[int, str]:
+def fetch_batch_datasheets(lcsc_ids: list[int], max_workers: int = 5) -> dict[int, str]:
     """批量获取 datasheet URL"""
     results = {}
 
-    with httpx.Client(
-        headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True
-    ) as client:
+    with httpx.Client(headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True) as client:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(fetch_datasheet_url, lcsc_id, client): lcsc_id
@@ -47,12 +43,10 @@ def fetch_batch_datasheets(
     return results
 
 
-def update_datasheet_urls(
-    conn: sqlite3.Connection, batch_size: int = 500
-) -> int:
+def update_datasheet_urls(conn: sqlite3.Connection, batch_size: int = 500) -> int:
     """更新数据库中缺少 datasheet URL 的元件"""
     cursor = conn.execute(
-        "SELECT lcsc FROM components WHERE datasheet_url IS NULL OR datasheet_url = '' LIMIT ?",
+        "SELECT lcsc FROM components WHERE datasheet IS NULL OR datasheet = '' LIMIT ?",
         (batch_size,),
     )
 
@@ -67,7 +61,7 @@ def update_datasheet_urls(
 
     for lcsc_id, url in urls.items():
         conn.execute(
-            "UPDATE components SET datasheet_url = ? WHERE lcsc = ?",
+            "UPDATE components SET datasheet = ? WHERE lcsc = ?",
             (url, lcsc_id),
         )
     conn.commit()
