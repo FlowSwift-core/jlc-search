@@ -84,8 +84,8 @@ async def health():
     """健康检查"""
     try:
         with get_db(readonly=True) as conn:
-            conn.execute("SELECT 1")
-        return {"status": "ok", "db": str(DB_PATH)}
+            count = conn.execute("SELECT COUNT(*) FROM components").fetchone()[0]
+        return {"status": "ok", "components": count}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
