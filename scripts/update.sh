@@ -3,7 +3,6 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="$PROJECT_DIR/data"
-DB_NEW="$DATA_DIR/jlc_search_new.db"
 DB_LIVE="$DATA_DIR/jlc_search.db"
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 CHAT_ID="${TELEGRAM_CHAT_ID}"
@@ -32,17 +31,10 @@ fi
 echo "=== JLC Search 更新开始 $(date) ==="
 send_telegram "🔄 *JLC Search* 开始每日更新..."
 
-# 运行更新
-if python -m jlc_search.update_pipeline --output "$DB_NEW" 2>&1; then
-    if [ -f "$DB_NEW" ]; then
-        mv "$DB_NEW" "$DB_LIVE"
-        echo "=== 更新完成 $(date) ==="
-        send_telegram "✅ *JLC Search* 更新完成！"
-    else
-        echo "=== 更新失败：输出文件不存在 $(date) ==="
-        send_telegram "❌ *JLC Search* 更新失败：输出文件不存在"
-        exit 1
-    fi
+# 运行原子更新（不指定 --output，使用默认路径）
+if python -m jlc_search.update_pipeline --atomic --skip-verify 2>&1; then
+    echo "=== 更新完成 $(date) ==="
+    send_telegram "✅ *JLC Search* 更新完成！"
 else
     echo "=== 更新失败 $(date) ==="
     send_telegram "❌ *JLC Search* 更新失败！请检查日志。"
