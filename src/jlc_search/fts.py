@@ -1,10 +1,13 @@
 """FTS5 全文搜索索引管理"""
 
+from __future__ import annotations
+
+import json
 import sqlite3
 
 
 def create_fts_index(conn: sqlite3.Connection):
-    """创建 FTS5 虚拟表（自包含，不依赖外部表）"""
+    """创建 FTS5 虚拟表"""
     conn.executescript("""
         DROP TABLE IF EXISTS components_fts;
 
@@ -23,31 +26,74 @@ def create_fts_index(conn: sqlite3.Connection):
     _populate_fts_index(conn)
 
 
+def _extract_description(desc: str, extra: str) -> str:
+    """从 description 或 extra JSON 中提取描述"""
+    # 优先用 description
+    if desc:
+        return desc
+
+    # 从 extra JSON 中提取
+    if extra:
+        try:
+            data = json.loads(extra)
+            parts = []
+
+            # 标题
+            if "title" in data:
+                parts.append(data["title"])
+
+            # 描述
+            if "description" in data:
+                parts.append(data["description"])
+
+            # 类别
+            if "category" in data:
+                cat = data["category"]
+                if "name1" in cat:
+                    parts.append(cat["name1"])
+                if "name2" in cat:
+                    parts.append(cat["name2"])
+
+            # 属性
+            if "attributes" in data:
+                for key, val in data["attributes"].items():
+                    parts.append(f"{key} {val}")
+
+            return " ".join(parts)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return ""
+
+
 def _populate_fts_index(conn: sqlite3.Connection):
     """从 components 表填充 FTS5 索引"""
     print("  填充 FTS5 索引...")
 
-    # 获取 category 表映射
-    categories = {}
-    try:
-        for row in conn.execute("SELECT id, name FROM categories"):
-            categories[row[0]] = row[1]
-    except Exception:
-        pass
-
-    # 批量插入
     conn.execute("BEGIN")
     count = 0
+
     for row in conn.execute("""
-        SELECT lcsc, mfr, package, description, datasheet, category_id, basic, stock
+        SELECT lcsc, mfr, package, description, datasheet, category_id, basic, stock, extra
         FROM components
     """):
-        lcsc, mfr, package, desc, datasheet, cat_id, basic, stock = row
-        cat_name = categories.get(cat_id, "")
+        lcsc, mfr, package, desc, datasheet, cat_id, basic, stock, extra = row
+
+        # 提取完整描述
+        full_desc = _extract_description(desc, extra)
 
         conn.execute(
             "INSERT INTO components_fts (lcsc, mfr, package, description, datasheet, category_id, basic, stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(lcsc), mfr or "", package or "", desc or "", datasheet or "", str(cat_id or 0), str(basic or 0), str(stock or 0))
+            (
+                str(lcsc),
+                mfr or "",
+                package or "",
+                full_desc,
+                datasheet or "",
+                str(cat_id or 0),
+                str(basic or 0),
+                str(stock or 0),
+            ),
         )
         count += 1
         if count % 100000 == 0:
