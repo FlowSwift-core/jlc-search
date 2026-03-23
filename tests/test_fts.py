@@ -24,14 +24,15 @@ def test_db():
             datasheet TEXT,
             category_id INTEGER,
             basic INTEGER,
-            stock INTEGER
+            stock INTEGER,
+            extra TEXT
         );
 
-        INSERT INTO components VALUES (1, 'RC0603FR-0710KL', '0603', '10K Resistor', '', 1, 1, 1000);
-        INSERT INTO components VALUES (2, 'CC0603KRX7R9BB104', '0603', '100nF Capacitor', '', 2, 1, 500);
-        INSERT INTO components VALUES (3, 'STM32F103C8T6', 'LQFP-48', 'ARM MCU', 'http://example.com/ds.pdf', 3, 0, 100);
-        INSERT INTO components VALUES (4, 'INA333AIDGKR', 'MSOP-8', 'Instrumentation Amp', '', 4, 0, 50);
-        INSERT INTO components VALUES (5, 'LED-0805-RED', '0803', 'Red LED', '', 5, 1, 2000);
+        INSERT INTO components VALUES (1, 'RC0603FR-0710KL', '0603', '10K Resistor', '', 1, 1, 1000, '{"title":"10K Resistor"}');
+        INSERT INTO components VALUES (2, 'CC0603KRX7R9BB104', '0603', '100nF Capacitor', '', 2, 1, 500, '{"title":"100nF Capacitor"}');
+        INSERT INTO components VALUES (3, 'STM32F103C8T6', 'LQFP-48', 'ARM MCU', 'http://example.com/ds.pdf', 3, 0, 100, NULL);
+        INSERT INTO components VALUES (4, 'INA333AIDGKR', 'MSOP-8', 'Instrumentation Amp', '', 4, 0, 50, NULL);
+        INSERT INTO components VALUES (5, 'LED-0805-RED', '0803', 'Red LED', '', 5, 1, 2000, NULL);
     """)
     conn.commit()
 
@@ -95,7 +96,7 @@ class TestFtsIndex:
 
         # 添加新数据（避免连字符，FTS5 会将其作为分隔符）
         conn.execute(
-            "INSERT INTO components VALUES (6, 'NEWPART123', '0805', 'New Part', '', 1, 1, 100)"
+            "INSERT INTO components VALUES (6, 'NEWPART123', '0805', 'New Part', '', 1, 1, 100, NULL)"
         )
         conn.commit()
 
