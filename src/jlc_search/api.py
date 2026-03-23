@@ -5,118 +5,40 @@ from __future__ import annotations
 import json
 import re
 import time
-import os
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException
 
 from .db import get_db, DB_PATH
-
-# 请求模型
-
-
-class QueryRequest(BaseModel):
-    sql: str = Field(..., description="SQL 查询语句（只允许 SELECT）")
-    timeout: int = Field(default=5000, ge=100, le=30000, description="超时（毫秒）")
-    limit: int = Field(default=100, ge=1, le=1000, description="返回行数上限")
+from .models import QueryRequest, AiSearchRequest, QueryResponse, SearchResponse
+from .validators import validate_sql, enforce_limit
+from .ai_search import generate_sql_with_ai
 
 
-class QueryResponse(BaseModel):
-    columns: list[str]
-    rows: list[list]
-    count: int
-    time_ms: int
-
-
-class SearchResponse(BaseModel):
-    results: list[dict]
-    count: int
-    time_ms: int
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    if not DB_PATH.exists():
-        print(f"警告: 数据库不存在 {DB_PATH}")
-    else:
-        print(f"数据库: {DB_PATH} ({DB_PATH.stat().st_size / 1024 / 1024:.1f} MB)")
-    yield
-
-
-app = FastAPI(
-    title="JLC Search API",
-    description="嘉立创元件库搜索 API（只读 SQL 查询）",
-    version="0.2.0",
-    lifespan=lifespan,
-)
-
-
-def validate_sql(sql: str):
-    """验证 SQL 安全性"""
-    sql_upper = sql.upper().strip()
-
-    if not sql_upper.startswith("SELECT"):
-        raise HTTPException(400, "只允许 SELECT 查询")
-
-    forbidden = [
-        "INSERT",
-        "UPDATE",
-        "DELETE",
-        "DROP",
-        "ALTER",
-        "CREATE",
-        "ATTACH",
-        "DETACH",
-        "REPLACE",
-        "TRUNCATE",
-        "PRAGMA",
-    ]
-    for word in forbidden:
-        if word in sql_upper:
-            raise HTTPException(400, f"禁止使用 {word}")
-
-
-def enforce_limit(sql: str, max_limit: int) -> str:
-    """强制添加 LIMIT"""
-    if "LIMIT" not in sql.upper():
-        return f"{sql.rstrip(';')} LIMIT {max_limit}"
-    return sql
+# 工具函数
 
 
 def sanitize_fts_query(query: str) -> str:
-    """
-    清理 FTS5 查询，处理特殊字符
-
-    FTS5 特殊字符: " : * + - ( )
-    策略：用引号包裹包含特殊字符的词
-    """
+    """清理 FTS5 查询"""
     query = query.strip()
-
-    # 如果已经是 FTS5 语法，不处理
     if any(c in query for c in ['"', ":", "AND", "OR", "NOT"]):
         return query
 
-    # 分词处理
     words = query.split()
     sanitized = []
-
     for word in words:
-        # 检查是否包含 FTS5 特殊字符
         if re.search(r"[+\-()~]", word):
-            # 用引号包裹
             sanitized.append(f'"{word}"')
         else:
             sanitized.append(word)
-
     return " ".join(sanitized)
 
 
 def parse_price(price_json: str | None) -> float | None:
-    """解析价格 JSON，返回第一档价格"""
+    """解析价格 JSON"""
     if not price_json:
         return None
     try:
@@ -157,6 +79,29 @@ def row_to_dict(row: tuple) -> dict:
         "category": category or "",
         "subcategory": subcategory or "",
     }
+
+
+# FastAPI 应用
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if not DB_PATH.exists():
+        print(f"警告: 数据库不存在 {DB_PATH}")
+    else:
+        print(f"数据库: {DB_PATH} ({DB_PATH.stat().st_size / 1024 / 1024:.1f} MB)")
+    yield
+
+
+app = FastAPI(
+    title="JLC Search API",
+    description="嘉立创元件库搜索 API（支持 AI 智能搜索）",
+    version="0.3.0",
+    lifespan=lifespan,
+)
+
+
+# API 端点
 
 
 @app.get("/health")
@@ -201,19 +146,15 @@ async def query(request: QueryRequest):
 @app.get("/search", response_model=SearchResponse)
 async def search(q: str, limit: int = 20):
     """
-    简易搜索接口（FTS5 前缀匹配，基础库优先）
+    简易搜索接口（FTS5 前缀匹配）
 
     示例:
     - /search?q=STM32
     - /search?q=10K resistor
-    - /search?q="100nF" capacitor
     """
     start = time.time()
 
-    # 清理查询
     fts_query = sanitize_fts_query(q)
-
-    # 自动添加 * 支持前缀匹配
     if not any(c in fts_query for c in ["*", '"', ":", " "]):
         fts_query = fts_query + "*"
 
@@ -239,15 +180,12 @@ async def search(q: str, limit: int = 20):
             elapsed = int((time.time() - start) * 1000)
 
             return SearchResponse(results=results, count=len(results), time_ms=elapsed)
-    except sqlite3.OperationalError as e:
-        # FTS5 错误，尝试降级到 LIKE 搜索
-        try:
-            return _fallback_search(conn, q, limit, start)
-        except Exception:
-            raise HTTPException(400, f"搜索错误: {e}")
+    except sqlite3.OperationalError:
+        # 降级到 LIKE 搜索
+        return _fallback_search(conn, q, limit, start)
 
 
-def _fallback_search(conn: sqlite3.Connection, q: str, limit: int, start: float) -> SearchResponse:
+def _fallback_search(conn, q: str, limit: int, start: float) -> SearchResponse:
     """降级搜索：使用 LIKE"""
     like_query = f"%{q}%"
     cursor = conn.execute(
@@ -271,123 +209,62 @@ def _fallback_search(conn: sqlite3.Connection, q: str, limit: int, start: float)
     return SearchResponse(results=results, count=len(results), time_ms=elapsed)
 
 
-@app.get("/search/params", response_model=SearchResponse)
-async def search_params(
-    q: Optional[str] = None,
-    package: Optional[str] = None,
-    resistance: Optional[str] = None,
-    capacitance: Optional[str] = None,
-    voltage: Optional[str] = None,
-    tolerance: Optional[str] = None,
-    basic_only: bool = False,
-    min_stock: int = 0,
-    limit: int = 20,
-):
+@app.post("/search/ai", response_model=SearchResponse)
+async def search_ai(request: AiSearchRequest):
     """
-    参数化搜索接口
+    AI 智能搜索（自然语言查询）
 
-    示例:
-    - /search/params?resistance=10K&package=0603&tolerance=1%
-    - /search/params?capacitance=100nF&voltage=50V&basic_only=true
-    - /search/params?q=STM32&package=LQFP-48
+    示例请求：
+    {
+        "q": "10K 0603 1% 电阻",
+        "limit": 5
+    }
+
+    AI 会理解查询并生成 SQL，然后执行搜索。
     """
     start = time.time()
 
-    # 构建 WHERE 条件
-    conditions = []
-    params = []
+    # 使用 AI 生成 SQL
+    sql = generate_sql_with_ai(request.q)
 
-    if q:
-        like_q = f"%{q}%"
-        conditions.append("(c.mfr LIKE ? OR c.description LIKE ?)")
-        params.extend([like_q, like_q])
-
-    if package:
-        conditions.append("c.package LIKE ?")
-        params.append(f"%{package}%")
-
-    if resistance:
-        # 搜索电阻值
-        conditions.append("(c.description LIKE ? OR c.mfr LIKE ? OR c.extra LIKE ?)")
-        res_pattern = f"%{resistance}%"
-        params.extend([res_pattern, res_pattern, res_pattern])
-
-    if capacitance:
-        # 搜索电容值
-        conditions.append("(c.description LIKE ? OR c.mfr LIKE ? OR c.extra LIKE ?)")
-        cap_pattern = f"%{capacitance}%"
-        params.extend([cap_pattern, cap_pattern, cap_pattern])
-
-    if voltage:
-        conditions.append("(c.description LIKE ? OR c.extra LIKE ?)")
-        volt_pattern = f"%{voltage}%"
-        params.extend([volt_pattern, volt_pattern])
-
-    if tolerance:
-        conditions.append("(c.description LIKE ? OR c.extra LIKE ?)")
-        tol_pattern = f"%{tolerance}%"
-        params.extend([tol_pattern, tol_pattern])
-
-    if basic_only:
-        conditions.append("c.basic = 1")
-
-    if min_stock > 0:
-        conditions.append("c.stock >= ?")
-        params.append(min_stock)
-
-    where_clause = " AND ".join(conditions) if conditions else "1=1"
+    # 验证 SQL
+    validate_sql(sql)
+    sql = enforce_limit(sql, request.limit)
 
     try:
         with get_db(readonly=True) as conn:
-            sql = f"""
-                SELECT c.lcsc, c.mfr, c.package, c.description,
-                       c.stock, c.basic, c.preferred, c.price, c.datasheet,
-                       cat.category, cat.subcategory,
-                       0 as rank
-                FROM components c
-                LEFT JOIN categories cat ON c.category_id = cat.id
-                WHERE {where_clause}
-                ORDER BY c.basic DESC, c.preferred DESC, c.stock DESC
-                LIMIT ?
-            """
-            params.append(min(limit, 100))
+            cursor = conn.execute(sql)
 
-            cursor = conn.execute(sql, params)
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            rows = cursor.fetchall()
 
             results = []
-            for row in cursor.fetchall():
-                (
-                    lcsc,
-                    mfr,
-                    package,
-                    desc,
-                    stock,
-                    basic,
-                    preferred,
-                    price_json,
-                    datasheet,
-                    category,
-                    subcategory,
-                    rank,
-                ) = row
-                results.append(
-                    {
-                        "lcsc": lcsc,
-                        "mfr": mfr,
-                        "package": package,
-                        "description": desc or "",
-                        "stock": stock,
-                        "is_basic": basic == 1,
-                        "is_preferred": preferred == 1,
-                        "price_usd": parse_price(price_json),
-                        "datasheet": datasheet,
-                        "category": category or "",
-                        "subcategory": subcategory or "",
-                    }
-                )
+            for row in rows:
+                row_dict = dict(zip(columns, row))
+
+                # 解析价格
+                if "price" in row_dict:
+                    row_dict["price_usd"] = parse_price(row_dict.pop("price"))
+                if "basic" in row_dict:
+                    row_dict["is_basic"] = row_dict.pop("basic") == 1
+                if "preferred" in row_dict:
+                    row_dict["is_preferred"] = row_dict.pop("preferred") == 1
+
+                # 添加默认字段
+                row_dict.setdefault("description", "")
+                row_dict.setdefault("category", "")
+                row_dict.setdefault("subcategory", "")
+                row_dict.setdefault("datasheet", "")
+
+                results.append(row_dict)
 
             elapsed = int((time.time() - start) * 1000)
 
-            return SearchResponse(results=results, count=len(results), time_ms=elapsed)
+            return SearchResponse(
+                results=results,
+                count=len(results),
+                time_ms=elapsed,
+                sql=sql,
+            )
     except Exception as e:
-        raise HTTPException(400, f"搜索错误: {e}")
+        raise HTTPException(400, f"搜索错误: {e}\n生成的 SQL: {sql}")
