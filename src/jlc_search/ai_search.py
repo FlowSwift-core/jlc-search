@@ -152,7 +152,7 @@ def parse_intent(query: str) -> SearchIntent:
             mfr_pattern=query,
             package=None,
             strict_filters={},
-            sql=f"SELECT lcsc, mfr, package, stock, basic, preferred, price, datasheet FROM components WHERE mfr LIKE '%{query}%' OR description LIKE '%{query}%' ORDER BY basic DESC, preferred DESC, stock DESC LIMIT 5",
+            sql=f"SELECT lcsc, mfr, package, stock, basic, preferred, price, datasheet, extra FROM components WHERE mfr LIKE '%{query}%' OR description LIKE '%{query}%' ORDER BY basic DESC, preferred DESC, stock DESC LIMIT 5",
         )
 
 
@@ -182,7 +182,7 @@ def _build_sql(intent: dict) -> str:
         # 需要 JOIN categories 表
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         sql = f"""
-            SELECT c.lcsc, c.mfr, c.package, c.stock, c.basic, c.preferred, c.price, c.datasheet
+            SELECT c.lcsc, c.mfr, c.package, c.stock, c.basic, c.preferred, c.price, c.datasheet, c.extra
             FROM components c
             LEFT JOIN categories cat ON c.category_id = cat.id
             WHERE {where_clause}
@@ -193,7 +193,7 @@ def _build_sql(intent: dict) -> str:
     else:
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         sql = f"""
-            SELECT lcsc, mfr, package, stock, basic, preferred, price, datasheet
+            SELECT lcsc, mfr, package, stock, basic, preferred, price, datasheet, extra
             FROM components
             WHERE {where_clause}
         """

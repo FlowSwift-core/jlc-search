@@ -285,11 +285,18 @@ async def search_ai(request: AiSearchRequest):
                 if "preferred" in row_dict:
                     row_dict["is_preferred"] = row_dict.pop("preferred") == 1
 
+                # 从 extra JSON 提取描述
+                extra_json = row_dict.get("extra")
+                desc_text = row_dict.get("description", "")
+                row_dict["description"] = extract_description(desc_text, extra_json)
+
                 # 添加默认字段
-                row_dict.setdefault("description", "")
                 row_dict.setdefault("category", "")
                 row_dict.setdefault("subcategory", "")
                 row_dict.setdefault("datasheet", "")
+
+                # 移除 extra 字段（不返回给用户）
+                row_dict.pop("extra", None)
 
                 results.append(row_dict)
 
