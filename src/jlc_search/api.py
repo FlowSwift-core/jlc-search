@@ -50,7 +50,29 @@ def parse_price(price_json: str | None) -> float | None:
     return None
 
 
-def row_to_dict(row: tuple) -> dict:
+def extract_description(desc: str | None, extra_json: str | None) -> str:
+    """从 description 或 extra JSON 中提取描述"""
+    # 优先使用 description
+    if desc:
+        return desc
+
+    # 从 extra JSON 中提取
+    if extra_json:
+        try:
+            extra = json.loads(extra_json)
+            # 优先使用 description 字段
+            if "description" in extra and extra["description"]:
+                return extra["description"]
+            # 否则使用 title
+            if "title" in extra and extra["title"]:
+                return extra["title"]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return ""
+
+
+def row_to_dict(row: tuple, extra_json: str | None = None) -> dict:
     """将查询结果行转换为字典"""
     (
         lcsc,
@@ -66,11 +88,15 @@ def row_to_dict(row: tuple) -> dict:
         subcategory,
         rank,
     ) = row
+
+    # 提取描述
+    description = extract_description(desc, extra_json)
+
     return {
         "lcsc": lcsc,
         "mfr": mfr,
         "package": package,
-        "description": desc,
+        "description": description,
         "stock": stock,
         "is_basic": basic == 1,
         "is_preferred": preferred == 1,
@@ -165,7 +191,8 @@ async def search(q: str, limit: int = 20):
                 SELECT fts.lcsc, fts.mfr, fts.package, fts.description, 
                        c.stock, c.basic, c.preferred, c.price, fts.datasheet,
                        cat.category, cat.subcategory,
-                       bm25(components_fts) as rank
+                       bm25(components_fts) as rank,
+                       c.extra
                 FROM components_fts fts
                 LEFT JOIN components c ON c.lcsc = CAST(fts.lcsc AS INTEGER)
                 LEFT JOIN categories cat ON c.category_id = cat.id
@@ -176,7 +203,10 @@ async def search(q: str, limit: int = 20):
                 (fts_query, min(limit, 100)),
             )
 
-            results = [row_to_dict(row) for row in cursor.fetchall()]
+            results = []
+            for row in cursor.fetchall():
+                extra_json = row[-1]  # extra 是最后一列
+                results.append(row_to_dict(row[:-1], extra_json))  # 传入不含 extra 的行
             elapsed = int((time.time() - start) * 1000)
 
             return SearchResponse(results=results, count=len(results), time_ms=elapsed)
@@ -193,7 +223,8 @@ def _fallback_search(conn, q: str, limit: int, start: float) -> SearchResponse:
         SELECT c.lcsc, c.mfr, c.package, '', 
                c.stock, c.basic, c.preferred, c.price, c.datasheet,
                cat.category, cat.subcategory,
-               0 as rank
+               0 as rank,
+               c.extra
         FROM components c
         LEFT JOIN categories cat ON c.category_id = cat.id
         WHERE c.mfr LIKE ? OR c.description LIKE ?
@@ -203,7 +234,11 @@ def _fallback_search(conn, q: str, limit: int, start: float) -> SearchResponse:
         (like_query, like_query, min(limit, 100)),
     )
 
-    results = [row_to_dict(row) for row in cursor.fetchall()]
+    results = []
+    for row in cursor.fetchall():
+        extra_json = row[-1]  # extra 是最后一列
+        results.append(row_to_dict(row[:-1], extra_json))
+
     elapsed = int((time.time() - start) * 1000)
 
     return SearchResponse(results=results, count=len(results), time_ms=elapsed)
